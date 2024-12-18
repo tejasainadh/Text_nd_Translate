@@ -1,20 +1,21 @@
+import Foundation
 
-import SwiftUI
-
-// Model for a chat message
 struct ChatMessage: Identifiable {
-    let id: UUID
-    let content: String
-    let translatedContent: String
-    let isIncoming: Bool
-    let timestamp: Date
-
-    // Custom initializer for easier creation of chat messages
-    init(content: String, translatedContent: String, isIncoming: Bool, timestamp: Date) {
-        self.id = UUID()
+    var id: String = UUID().uuidString
+    var content: String
+    var translatedContent: String?  // This will hold the translated text
+    var sender: String
+    var recipient: String
+    var timestamp: Date
+    var isIncoming: Bool // This tracks whether the message is incoming or outgoing
+    
+    // Custom initializer to set all properties
+    init(content: String, translatedContent: String? = nil, sender: String, recipient: String, timestamp: Date, isIncoming: Bool) {
         self.content = content
         self.translatedContent = translatedContent
-        self.isIncoming = isIncoming
+        self.sender = sender
+        self.recipient = recipient
         self.timestamp = timestamp
+        self.isIncoming = isIncoming
     }
 }

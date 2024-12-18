@@ -1,44 +1,77 @@
 import SwiftUI
+import Foundation
 
 struct ChatView: View {
-    let chatName: String // The name of the person you're chatting with
-    @State private var messages: [ChatMessage] = [
-        ChatMessage(content: "Ciao!", translatedContent: "Hello!", isIncoming: true, timestamp: Date()),
-        ChatMessage(content: "Come stai?", translatedContent: "How are you?", isIncoming: true, timestamp: Date())
-    ]
+    @Binding var messages: [ChatMessage]
     @State private var newMessage: String = ""
-
+    @State private var selectedLanguage: String = "en" // Default language for translation
+    var chatName: String // Add the chat name variable
+    
+    let api = YandexTranslateAPI()
+    
+    // List of supported languages
+    let supportedLanguages = [
+        "English": "en",
+        "Spanish": "es",
+        "French": "fr",
+        "German": "de",
+        "Italian": "it",
+        "Russian": "ru"
+    ]
+    
     var body: some View {
         VStack {
-            // Message List
+            // Language Picker at the Top
+            HStack {
+                Text("Translate to:")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+                Picker("Select Language", selection: $selectedLanguage) {
+                    ForEach(supportedLanguages.sorted(by: <), id: \.key) { languageName, code in
+                        Text(languageName).tag(code)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle()) // Dropdown style picker
+                .onChange(of: selectedLanguage) { _ in
+                    translateAllMessages()
+                }
+            }
+            .padding()
+            
+            // Messages List
             List(messages) { message in
                 HStack {
                     if message.isIncoming {
+                        // Incoming Message
                         VStack(alignment: .leading) {
                             Text(message.content)
                                 .padding(10)
                                 .background(Color.gray.opacity(0.2))
                                 .cornerRadius(10)
-                                .foregroundColor(.black)
-
-                            Text(message.translatedContent)
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                                .padding(.top, 2)
+                            
+                            if let translated = message.translatedContent {
+                                Text(translated)
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                    .padding(.top, 2)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
+                        // Outgoing Message
                         VStack(alignment: .trailing) {
                             Text(message.content)
                                 .padding(10)
                                 .background(Color.blue)
                                 .cornerRadius(10)
                                 .foregroundColor(.white)
-
-                            Text(message.translatedContent)
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .padding(.top, 2)
+                            
+                            if let translated = message.translatedContent {
+                                Text(translated)
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                    .padding(.top, 2)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -47,58 +80,93 @@ struct ChatView: View {
                 .padding(.vertical, 4)
             }
             
-            // Input Field and Send Button
+            // Input Field for New Messages
             HStack {
                 TextField("Type a message...", text: $newMessage)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .padding(.leading, 10)
-
-                Button(action: {
-                    sendMessage()
-                }) {
-                    Image(systemName: "arrow.up.circle.fill") // Arrow-in-circle icon
+                
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 24))
                         .foregroundColor(.blue)
                 }
                 .padding(.trailing, 10)
-                .accessibilityLabel("Send message")
             }
             .padding()
         }
-        .navigationTitle(chatName)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(chatName) // Display the chat name
+        .onAppear {
+            translateAllMessages() // Ensure messages are translated when view loads
+        }
     }
-
-    // Function to send a message
+    
+    // MARK: - Translate All Incoming Messages
+    private func translateAllMessages() {
+        for (index, message) in messages.enumerated() where message.isIncoming {
+            api.translate(text: message.content, to: selectedLanguage) { translation in
+                DispatchQueue.main.async {
+                    if let translation = translation, !translation.isEmpty {
+                        messages[index].translatedContent = translation
+                    } else {
+                        messages[index].translatedContent = "Translation failed"
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Send New Message
     func sendMessage() {
         guard !newMessage.isEmpty else { return }
-
-        let translatedMessage = translateToItalian(newMessage) // Translate the message
+        
+        // Create a new ChatMessage object
         let outgoingMessage = ChatMessage(
             content: newMessage,
-            translatedContent: translatedMessage,
-            isIncoming: false,
-            timestamp: Date()
+            sender: "currentUserID", // Replace with actual sender ID
+            recipient: chatName,     // Use the contact name as the recipient
+            timestamp: Date(),
+            isIncoming: false       // Outgoing message
         )
-        messages.append(outgoingMessage) // Add the new message to the list
-        newMessage = "" // Clear the input field
-    }
-
-    // Function to translate text into Italian
-    func translateToItalian(_ text: String) -> String {
-        let translations = [
-            "Hello!": "Ciao!",
-            "How are you?": "Come stai?",
-            "I'm good, thank you!": "Sto bene, grazie!",
-            "What are you doing?": "Cosa stai facendo?",
-            "See you later!": "A dopo!"
-        ]
-        return translations[text] ?? "Translation not found"
+        
+        // Append the message locally to update the UI
+        messages.append(outgoingMessage)
+        
+        // Clear the input field
+        let messageToTranslate = newMessage
+        newMessage = ""
+        
+        // Send the message to Firestore
+        let chatService = ChatService()
+        chatService.sendMessage(to: chatName, message: outgoingMessage)
+        
+        // Optionally translate the message
+        api.translate(text: messageToTranslate, to: selectedLanguage) { translation in
+            DispatchQueue.main.async {
+                if let index = messages.firstIndex(where: { $0.content == messageToTranslate }) {
+                    if let translation = translation, !translation.isEmpty {
+                        messages[index].translatedContent = translation
+                    } else {
+                        messages[index].translatedContent = "Translation failed"
+                    }
+                }
+            }
+        }
     }
 }
 
+// MARK: - Preview
 struct ChatView_Previews: PreviewProvider {
+    @State static var sampleMessages = [
+        ChatMessage(content: "Hola, ¿cómo estás?", translatedContent: "Hello, how are you?", sender: "Giulia", recipient: "User", timestamp: Date(), isIncoming: true),
+        ChatMessage(content: "Bonjour, ça va?", translatedContent: "Hello, how's it going?", sender: "Giulia", recipient: "User", timestamp: Date(), isIncoming: true),
+        ChatMessage(content: "Hello!", translatedContent: "Hello!", sender: "User", recipient: "Giulia", timestamp: Date(), isIncoming: false)
+    ]
+    
     static var previews: some View {
-        ChatView(chatName: "Alice")
+        NavigationView {
+            // Pass the @State variable as a Binding to the ChatView
+            ChatView(messages: $sampleMessages, chatName: "Giulia")
+        }
     }
 }
